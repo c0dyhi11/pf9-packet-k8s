@@ -1,0 +1,9 @@
+venv/
+__pycache__/
+terraform/.terraform/
+terraform/terraform.tfstate
+terraform/terraform.tfstate.backup
+terraform/var_override.tf
+clouds.yaml
+flask_test.py
+secrets.json
