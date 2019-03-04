@@ -33,8 +33,13 @@ def put_request(url, token, url_path, body):
     if response.status != 200:
         print("URL: {}\n STATUS: {}\n MESSAGE: {}".format(full_path, response.status, response.reason))
         exit(1)
+   
+    try:
+        response_body = json.loads(response.read())
+    except ValueError:
+        print("Cannot load JSON. Maybe this API doesn't return JSON")
+        response_body = response.read()
 
-    response_body = json.loads(response.read())
     return response_body
 
 

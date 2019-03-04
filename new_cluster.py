@@ -20,7 +20,7 @@ def create_cluster(endpoint, user, pw, tenant, region, cluster_name, dnz_zone_na
                                        "", privileged_mode_enabled, app_catalog_enabled,
                                        allow_workloads_on_master, runtime_config, node_pool_uuid,
                                        networkPlugin, debug_flag)
-    put_body = {"externalDnsName": "{}.{}".format(new_cluster, dnz_zone_name)}
+    put_body = {"externalDnsName": "{}-api.{}".format(new_cluster, dnz_zone_name)}
     dns_update = qbert.put_request(qbert_url, token, "clusters/{}".format(new_cluster), put_body)
 
     return new_cluster, node_pool_uuid
@@ -58,16 +58,20 @@ def create_terraform_stack(cluster_name, auth_token, project_id, master_size, wo
     hostname = re.sub(r"[^a-zA-Z0-9]+", '-', cluster_name).lower()
     tags = ["cluster_name={}".format(cluster_name), "cluster_id={}".format(cluster_uuid)]
     dir_path = "{}/{}".format(os.path.dirname(os.path.realpath(__file__)), "terraform")
+    state_path = "{}/states/{}/{}".format(dir_path, project_id, cluster_uuid)
+    os.makedirs(state_path, exist_ok=True)
     tf = Terraform(dir_path)
-    return_code, stdout, stderr = tf.get()
+    return_code, stdout, stderr = tf.get(capture_output=False)
     print("GET Return Code: {}\n\n".format(return_code))
     print("GET STDOUT: {}\n\n".format(stdout))
     print("GET STDERR: {}\n\n".format(stderr))
-    return_code, stdout, stderr = tf.init()
+    return_code, stdout, stderr = tf.init(capture_output=False)
     print("INIT Return Code: {}\n\n".format(return_code))
     print("INIT STDOUT: {}\n\n".format(stdout))
     print("INIT STDERR: {}\n\n".format(stderr))
-    return_code, stdout, stderr = tf.apply(var={'hostname': hostname, 'auth_token': auth_token, 'project_id':
+    approve = {"auto-approve": True}
+    plan_file = "{}/plan.tf".format(state_path)
+    return_code, stdout, stderr = tf.plan(capture_output=False, out=plan_file, var={'hostname': hostname, 'auth_token': auth_token, 'project_id':
                                                 project_id, 'master_size': master_size, 'worker_size': worker_size,
                                                 'facility': facility, 'master_count': master_count,
                                                 'worker_count': worker_count, 'du_fqdn': du_fqdn,

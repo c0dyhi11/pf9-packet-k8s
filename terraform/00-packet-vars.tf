@@ -20,7 +20,7 @@ variable "facility"{
 }
 
 variable "operating_system"{
-  default = "ubuntu_16"
+  default = "ubuntu_16_04"
 }
 
 variable "billing_cycle"{

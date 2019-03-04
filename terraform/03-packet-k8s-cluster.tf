@@ -25,7 +25,7 @@ module "master_config" {
 
 module "worker_config" {
   source = "./modules/qbert"
-  is_master = true
+  is_master = false
   du_fqdn = "${var.du_fqdn}"
   keystone_user = "${var.keystone_user}"
   keystone_password = "${var.keystone_password}"

@@ -1,5 +1,5 @@
 data "template_file" "cloud_init" {
-  template = "${file("modules/packet/configs/cloud_init.conf")}"
+  template = "${file("modules/qbert/configs/cloud_init.conf")}"
   vars {  
     is_master                             =   "${var.is_master}"
     du_fqdn                               =   "${var.du_fqdn}"
