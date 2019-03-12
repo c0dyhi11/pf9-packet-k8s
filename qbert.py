@@ -32,10 +32,32 @@ def put_request(url, token, url_path, body):
 
     if response.status != 200:
         print("URL: {}\n STATUS: {}\n MESSAGE: {}".format(full_path, response.status, response.reason))
-        exit(1)
-   
+        return response.status
+
     try:
-        response_body = json.loads(response.read())
+        response_body = json.loads(response.read().decode('utf-8'))
+    except ValueError:
+        print("Cannot load JSON. Maybe this API doesn't return JSON")
+        response_body = response.read()
+
+    return response_body
+
+
+def delete_request(url, token, url_path):
+    """Small helper function to do PUT requests."""
+    headers = {"Accept": "application/json", "X-Auth-Token": token}
+    body = ""
+    _, net_location, path, _, _ = urlparse.urlsplit(url)
+    full_path = "{0}/{1}".format(path, url_path)
+
+    conn, response = do_request("DELETE", net_location, full_path, headers, body)
+
+    if response.status != 200:
+        print("URL: {}{}\n STATUS: {}\n MESSAGE: {}".format(net_location, full_path, response.status, response.reason))
+        return response.status
+
+    try:
+        response_body = json.loads(response.read().decode('utf-8'))
     except ValueError:
         print("Cannot load JSON. Maybe this API doesn't return JSON")
         response_body = response.read()
@@ -54,10 +76,10 @@ def get_request(url, token, url_path, type="JSON"):
 
     if response.status != 200:
         print("URL: {}\n STATUS: {}\n MESSAGE: {}".format(full_path, response.status, response.reason))
-        exit(1)
+        return response.status
 
     if type == "JSON":
-        response_body = json.loads(response.read())
+        response_body = json.loads(response.read().decode('utf-8'))
     else:
         response_body = response.read()
     return response_body
@@ -98,9 +120,9 @@ def create_cluster(qbert_url, token, cluster_name, containers_cidr, services_cid
 
     if response.status != 200:
         print("{0}: {1}".format(response.status, response.reason))
-        exit(1)
+        return response.status
 
-    response_body = json.loads(response.read())
+    response_body = json.loads(response.read().decode('utf-8'))
     return response_body['uuid']
 
 
@@ -113,7 +135,7 @@ def get_qbert_v3_url(qbert_url, project_id):
 def get_token_v3(host, username, password, tenant):
     """Connect to Keystone and get a token."""
     print("Getting a valid keystone token.")
-    headers = {"Content-Type": "application/json"}
+    headers = {"Content-Type": "application/json", "Accept": "application/json"}
     body = {
         "auth": {
             "identity": {
@@ -139,10 +161,10 @@ def get_token_v3(host, username, password, tenant):
 
     if response.status not in (200, 201):
         print("STATUS: {0}\n MESSAGE: {1}".format(response.status, response.reason))
-        exit(1)
+        return response.status
 
     token = response.getheader('X-Subject-Token')
-    response_body = json.loads(response.read())
+    response_body = json.loads(response.read().decode('utf-8'))
     catalog = response_body['token']['catalog']
     project_id = response_body['token']['project']['id']
     conn.close()

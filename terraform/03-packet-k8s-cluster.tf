@@ -50,7 +50,7 @@ module "master_node" {
   operating_system = "${var.operating_system}"
   facility = "${var.facility}"
   billing_cycle = "${var.billing_cycle}"
-  user_data = "${module.worker_config.bootstrap}"
+  user_data = "${module.master_config.bootstrap}"
 }
 
 module "worker_node" {

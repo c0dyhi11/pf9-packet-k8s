@@ -1,4 +1,4 @@
-variable "is_master"{
+variable "is_master" {
 }
 
 variable "du_fqdn" {

@@ -1,0 +1,89 @@
+openapi: 3.0.0
+info:
+  version: 0.0.0
+  title: TiKube
+servers:
+  - url: 'https://tikube.pf9.in/tikube/v0'
+security:
+  - ApiKeyAuth: []
+paths:
+  /{project_id}/clusters:
+    parameters:
+      - in: path
+        name: project_id
+        schema:
+            type: string
+        required: true
+        description: Packet Project ID
+        example: 41f6b702-aba4-4758-9094-403c41b25b6c
+    post:
+      summary: Provision new cluster
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NewCluster'
+      responses:
+        '200':
+          description: Cluster created and nodes are being created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Task'
+        '400':
+          description: Cannot provision
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-Auth-Token
+      description: Packet Auth Token
+  schemas:
+    NewCluster:
+      required:
+        - cluster_name
+        - facility
+        - multi_master
+        - master_plan
+        - worker_plan
+        - worker_count
+      properties:
+        cluster_name:
+          type: string
+          description: What you would like to name your cluster?
+          example: My Best Cluster
+        facility:
+          type: string
+          description: Which Packet facility would you like your cluster to live in?
+          example: ewr1
+        multi_master:
+          type: boolean
+          description: Do you want this to be a Multi-Master cluster? (Create three master nodes)
+          example: True
+        master_plan:
+          type: string
+          description: Which Packet Plan would you like to use for your masters?
+          example: baremetal_0
+        worker_plan:
+          type: string
+          description: Which Packet Plan would you like to use for your workers?
+          example: baremetal_0
+        worker_count:
+          type: number
+          description: How many worker nodes would you like in your cluster?
+          example: 10
+    Task:
+      properties:
+        cluster_id:
+          type: string
+          description: The UUID of the cluster
+          example: 331658b6-7828-49e1-a1ee-c844e5c3181
+        resource_status:
+          type: string
+          description: The status of the task building Packet hosts
+          example: PENDING
+        resources_task_id:
+          type: string
+          description: UUID of the task building Packet hosts
+          example: e56c5531-6824-4b52-9e30-7ca75ac66475
