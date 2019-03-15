@@ -28,7 +28,7 @@ def put_request(url, token, url_path, body):
     _, net_location, path, _, _ = urlparse.urlsplit(url)
     full_path = "{0}/{1}".format(path, url_path)
 
-    conn, response = do_request("PUT", net_location, full_path, headers, body)
+    _, response = do_request("PUT", net_location, full_path, headers, body)
 
     if response.status != 200:
         print("URL: {}\n STATUS: {}\n MESSAGE: {}".format(full_path, response.status, response.reason))
@@ -50,7 +50,7 @@ def delete_request(url, token, url_path):
     _, net_location, path, _, _ = urlparse.urlsplit(url)
     full_path = "{0}/{1}".format(path, url_path)
 
-    conn, response = do_request("DELETE", net_location, full_path, headers, body)
+    _, response = do_request("DELETE", net_location, full_path, headers, body)
 
     if response.status != 200:
         print("URL: {}{}\n STATUS: {}\n MESSAGE: {}".format(net_location, full_path, response.status, response.reason))
@@ -72,7 +72,7 @@ def get_request(url, token, url_path, type="JSON"):
     _, net_location, path, _, _ = urlparse.urlsplit(url)
     full_path = "{0}/{1}".format(path, url_path)
 
-    conn, response = do_request("GET", net_location, full_path, headers, body)
+    _, response = do_request("GET", net_location, full_path, headers, body)
 
     if response.status != 200:
         print("URL: {}\n STATUS: {}\n MESSAGE: {}".format(full_path, response.status, response.reason))
@@ -116,7 +116,7 @@ def create_cluster(qbert_url, token, cluster_name, containers_cidr, services_cid
     _, net_location, path, _, _ = urlparse.urlsplit(qbert_url)
     node_pool_path = "{0}/{1}".format(path, "clusters")
 
-    conn, response = do_request("POST", net_location, node_pool_path, headers, body)
+    _, response = do_request("POST", net_location, node_pool_path, headers, body)
 
     if response.status != 200:
         print("{0}: {1}".format(response.status, response.reason))
@@ -171,8 +171,9 @@ def get_token_v3(host, username, password, tenant):
     return token, catalog, project_id
 
 
-def get_kube_config(qbert_url, token, cluster_id, user, pw):
+def get_kube_config(qbert_url, admin_token, endpoint, cluster_id, project_id, user, pw):
     """Download kubeconfig for our cluster."""
+    token, _, project_id = get_token_v3(endpoint, user, pw, project_id)
     response_body = get_request(qbert_url, token, "kubeconfig/{0}".format(cluster_id), "RAW")
     # Hash credentials and store with kubeconfig
     credentials = {
@@ -180,8 +181,30 @@ def get_kube_config(qbert_url, token, cluster_id, user, pw):
         "password": pw
     }
     credential_string = json.dumps(credentials)
-    bearer_token = base64.b64encode(credential_string)
-    raw_kubeconfig = response_body.replace("__INSERT_BEARER_TOKEN_HERE__", bearer_token)
-    f = open("/root/kubeconfig", "w")
-    f.write(raw_kubeconfig)
-    return raw_kubeconfig
+    bearer_token = base64.b64encode(credential_string.encode("utf-8"))
+    raw_kubeconfig = response_body.replace("__INSERT_BEARER_TOKEN_HERE__".encode("utf-8"), bearer_token)
+    return raw_kubeconfig.decode("utf-8")
+
+
+def post_request(url, token, url_path, body, more_headers={}):
+    """Small helper function to do POST requests."""
+    headers = {"Content-Type": "application/json", "Accept": "application/json", "X-Auth-Token": token}
+    if more_headers:
+        for k, v in more_headers.items():
+            headers[k] = v
+    _, net_location, path, _, _ = urlparse.urlsplit(url)
+    full_path = "{0}/{1}".format(path, url_path)
+
+    _, response = do_request("POST", net_location, full_path, headers, body)
+
+    if response.status != 200:
+        print("URL: {}\n STATUS: {}\n MESSAGE: {}".format(full_path, response.status, response.reason))
+        return response.status
+
+    try:
+        response_body = json.loads(response.read().decode('utf-8'))
+    except ValueError:
+        print("Cannot load JSON. Maybe this API doesn't return JSON")
+        response_body = response.read()
+
+    return response_body

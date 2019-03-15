@@ -5,8 +5,8 @@ import uuid
 import re
 import os
 import json
-from python_terraform import Terraform, IsFlagged
-from async_tasks import app, create_terraform_stack, delete_terraform_stack
+from async_tasks import create_terraform_stack, delete_terraform_stack, authorize_cluster
+
 
 
 def delete_cluster(endpoint, user, pw, tenant, region, cluster_id):
@@ -17,9 +17,9 @@ def delete_cluster(endpoint, user, pw, tenant, region, cluster_id):
     return delete_cluster
 
 
-def delete_user(conn, cluster_id):
-    user_email = "{}@pf9.in".format(cluster_id)
-    os_user = conn.get_user(user_email)
+def delete_user(conn, user):
+    os_user = conn.get_user(user)
+
     if os_user:
         conn.delete_user(os_user, domain_id="default")
     else:
@@ -64,7 +64,7 @@ def create_cluster(endpoint, user, pw, tenant, region, cluster_name, dnz_zone_na
                                        allow_workloads_on_master, runtime_config, node_pool_uuid,
                                        networkPlugin, debug_flag)
     put_body = {"externalDnsName": "{}-api.{}".format(new_cluster, dnz_zone_name)}
-    dns_update = qbert.put_request(qbert_url, token, "clusters/{}".format(new_cluster), put_body)
+    qbert.put_request(qbert_url, token, "clusters/{}".format(new_cluster), put_body)
 
     return new_cluster, node_pool_uuid
 
@@ -81,12 +81,13 @@ def create_project(conn, project_name, os_admin_username):
     return os_project
 
 
-def create_user(conn, cluster_id, os_project):
+def create_user(conn, os_project, user_email):
 
-    user_email = "{}@pf9.in".format(cluster_id)
     os_user = conn.get_user(user_email)
     if os_user:
-        print("User already exists. Skipping creation...")
+        print("User already exists. Resetting password...")
+        user_password = str(uuid.uuid4())
+        os_user = conn.update_user(os_user, password=user_password, domain_id="default")
     else:
         user_password = str(uuid.uuid4())
         os_user = conn.create_user(name=user_email, password=user_password, email=user_email, domain_id="default")
@@ -106,15 +107,21 @@ def do_delete_stack(secrets):
     account_endpoint = re.search("(?:http.*://)?(?P<host>[^:/ ]+)", secrets['OS_AUTH_URL']).group('host')
     conn = openstack.connect(cloud='cloud')
     cluster_id = secrets['CLUSTER_ID']
-    cluster_deleted = delete_cluster(account_endpoint, secrets['OS_USERNAME'], secrets['OS_PASSWORD'], 
-                                     secrets['PACKET_PROJECT_ID'], secrets['OS_REGION_NAME'], cluster_id)
-    user_deleted = delete_user(conn, cluster_id)
-    project_deleted = delete_project(conn, account_endpoint, secrets['OS_USERNAME'], secrets['OS_PASSWORD'], 
+    """ TODO: Get list of nodes that are attached to this cluster from qbert. Then execute a DELETE in ResMgr for these hosts
+    curl 'https://{DU_FQDN}/resmgr/v1/hosts/{HOST_ID}' -X DELETE -H 'Accept: application/json' -H 'X-Auth-Token: {TOKEN}'
+    """
+    delete_cluster(account_endpoint, secrets['OS_USERNAME'], secrets['OS_PASSWORD'], secrets['PACKET_PROJECT_ID'],
+                   secrets['OS_REGION_NAME'], cluster_id)
+    # TODO: We need to grab all users that are in the project that have <cluster_id> in their username and
+    # delete them all
+    project_deleted = delete_project(conn, account_endpoint, secrets['OS_USERNAME'], secrets['OS_PASSWORD'],
                                      secrets['PACKET_PROJECT_ID'], secrets['OS_REGION_NAME'])
     dir_path = "{}/{}".format(os.path.dirname(os.path.realpath(__file__)), "terraform")
-    celery_task = delete_terraform_stack.delay(cluster_id, secrets['PACKET_PROJECT_ID'], dir_path)
-    return ({'cluster_id': cluster_id, 'delete_resource_status': celery_task.status,
-             'delete_resources_task_id': celery_task.id})
+    state_path = "{}/states/{}/{}".format(dir_path, secrets['PACKET_PROJECT_ID'], cluster_id)
+    celery_task = delete_terraform_stack.delay(cluster_id, secrets['PACKET_PROJECT_ID'], dir_path, state_path,
+                                               project_deleted)
+    return ({'cluster_id': cluster_id, 'task_status': celery_task.status,
+             'task_id': celery_task.id})
 
 
 def do_create_stack(secrets):
@@ -124,12 +131,17 @@ def do_create_stack(secrets):
     cluster_id, node_pool_uuid = create_cluster(account_endpoint, secrets['OS_USERNAME'], secrets['OS_PASSWORD'],
                                                 os_project['name'], secrets['OS_REGION_NAME'], secrets['CLUSTER_NAME'],
                                                 secrets['R53_ZONE_NAME'][:-1])
-    os_user, user_password = create_user(conn, cluster_id, os_project)
+    user_email = "admin@{}.{}.tikube".format(cluster_id, os_project['name'])
+    os_user, user_password = create_user(conn, os_project, user_email)
     dir_path = "{}/{}".format(os.path.dirname(os.path.realpath(__file__)), "terraform")
-    tags = ["cluster_name={}".format(secrets['CLUSTER_NAME']), "cluster_id={}".format(cluster_id)]
+    state_path = "{}/states/{}/{}".format(dir_path, os_project['name'], cluster_id)
+    os.makedirs(state_path, exist_ok=True)
+    with open("{}/admin_creds.json".format(state_path), 'w') as outfile:
+        json.dump({"username": os_user['name'], "password": user_password}, outfile)
+    # tags = ["cluster_name={}".format(secrets['CLUSTER_NAME']), "cluster_id={}".format(cluster_id)]
     tf_vars = {
-                'auth_token': secrets['AUTH_TOKEN'], 
-                'project_id': secrets['PACKET_PROJECT_ID'], 
+                'auth_token': secrets['AUTH_TOKEN'],
+                'project_id': os_project['name'],
                 'master_size': secrets['MASTER_SIZE'],
                 'worker_size': secrets['WORKER_SIZE'],
                 'facility': secrets['FACILITY'],
@@ -140,13 +152,93 @@ def do_create_stack(secrets):
                 'keystone_password': secrets['OS_PASSWORD'],
                 'cluster_uuid': cluster_id,
                 'node_pool_uuid': node_pool_uuid,
-                'zone_name': secrets['R53_ZONE_NAME'], 
+                'zone_name': secrets['R53_ZONE_NAME'],
                 'aws_access_key': secrets['AWS_ACCESS_KEY'],
                 'aws_secret_key': secrets['AWS_SECRET_KEY'],
                 'aws_region': secrets['AWS_REGION']
               }
-    print(dir_path)
-    celery_task = create_terraform_stack.delay(secrets['CLUSTER_NAME'], tf_vars, dir_path)
+    celery_task = create_terraform_stack.delay(secrets['CLUSTER_NAME'], tf_vars, dir_path, state_path)
 
-    return ({'cluster_id': cluster_id, 'create_resource_status': celery_task.status,
-             'create_resources_task_id': celery_task.id})
+    return ({'cluster_id': cluster_id, 'admin': os_user['name'], 'task_status': celery_task.status,
+             'task_id': celery_task.id})
+
+
+def do_get_kubeconfig(secrets):
+    endpoint = re.search("(?:http.*://)?(?P<host>[^:/ ]+)", secrets['OS_AUTH_URL']).group('host')
+    token, catalog, project_id = qbert.get_token_v3(endpoint, secrets['OS_USERNAME'], secrets['OS_PASSWORD'],
+                                                    secrets['PACKET_PROJECT_ID'])
+    qbert_url = "{0}/{1}".format(qbert.get_service_url('qbert', catalog, secrets['OS_REGION_NAME']), project_id)
+    dir_path = "{}/{}".format(os.path.dirname(os.path.realpath(__file__)), "terraform")
+    state_path = "{}/states/{}/{}".format(dir_path, secrets['PACKET_PROJECT_ID'], secrets['CLUSTER_ID'])
+    conn = openstack.connect(cloud='cloud')
+    os_user = conn.get_user(secrets['user_id'])
+    if not os_user:
+        return {"Error": "User id: {} not found.".format(secrets['user_id'])}
+    username = os_user['name']
+    if username == 'admin@{}.{}.tikube'.format(secrets['CLUSTER_ID'], secrets['PACKET_PROJECT_ID']):
+        with open("{}/admin_creds.json".format(state_path)) as f:
+            user_creds = json.load(f)
+        password = user_creds['password']
+        authorize_cluster.delay(qbert_url, token, secrets['CLUSTER_ID'], username)
+    else:
+        conn = openstack.connect(cloud='cloud')
+        os_project = conn.get_project(secrets['PACKET_PROJECT_ID'])
+        os_user, password = create_user(conn, os_project, username)
+
+    kubeconfig = qbert.get_kube_config(qbert_url, token, endpoint, secrets['CLUSTER_ID'], secrets['PACKET_PROJECT_ID'],
+                                       username, password)
+
+    return kubeconfig
+
+
+def do_delete_user(secrets):
+    conn = openstack.connect(cloud='cloud')
+    os_user = conn.get_user(secrets['user_id'])
+    if not os_user:
+        return {'Error': 'User with ID: {} doesn\'t exist!'.format(secrets['user_id'])}
+    if os_user['name'] == "admin@{}.{}.tikube".format(secrets['CLUSTER_ID'],
+                                                      secrets['PACKET_PROJECT_ID']):
+        return {'Error', 'You can not delete the admin user. It will be deleted when the cluster is deleted.'}
+    delete_user(conn, secrets['user_id'])
+    return {'OK': 'User: {} has been deleted.'.format(os_user['name'])}
+
+
+def do_get_users(secrets, user_id=None):
+    conn = openstack.connect(cloud='cloud')
+    if user_id:
+        os_user = conn.get_user(user_id)
+        if not os_user:
+            return {'Error': 'User with ID: {} doesn\'t exist!'.format(secrets['user_id'])}
+    os_admin = conn.get_user(secrets['OS_USERNAME'])
+    os_project = conn.get_project(secrets['PACKET_PROJECT_ID'])
+    if os_project:
+        params = dict(project=os_project)
+        role_mappings = conn.list_role_assignments(filters=params)
+        users = []
+        for mapping in role_mappings:
+            # TODO: This is only checking for a single admin user... Is this even needed anymore with the checks below
+            # for exact syntax of username?
+            if mapping['user'] != os_admin['id']:
+                os_user = conn.get_user(mapping['user'])
+                if os_user['name'].endswith("@{}.{}.tikube".format(secrets['CLUSTER_ID'],
+                                                                   secrets['PACKET_PROJECT_ID'])):
+                    if os_user['name'] == "admin@{}.{}.tikube".format(secrets['CLUSTER_ID'],
+                                                                      secrets['PACKET_PROJECT_ID']):
+                        is_admin = True
+                    else:
+                        is_admin = False
+                    if os_user['id'] == user_id:
+                        return {"id": os_user['id'], "username": os_user['name'], "is_admin": is_admin}
+                    users.append({"id": os_user['id'], "username": os_user['name'],
+                                  "is_admin": is_admin})
+        return users
+
+
+def do_create_user(secrets):
+    if not secrets['username'].endswith("@{}.{}.tikube".format(secrets['CLUSTER_ID'],
+                                                               secrets['PACKET_PROJECT_ID'])):
+        return {"Error", "Username must be in format: <username>@<cluster_id>.<project_id>.tikube"}
+    conn = openstack.connect(cloud='cloud')
+    os_project = conn.get_project(secrets['PACKET_PROJECT_ID'])
+    os_user, _ = create_user(conn, os_project, secrets['username'])
+    return {"id": os_user['id'], "username": os_user['name'], "is_admin": False}

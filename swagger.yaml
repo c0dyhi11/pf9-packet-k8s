@@ -6,6 +6,7 @@ servers:
   - url: 'https://tikube.pf9.in/tikube/v0'
 security:
   - ApiKeyAuth: []
+
 paths:
   /{project_id}/clusters:
     parameters:
@@ -16,13 +17,27 @@ paths:
         required: true
         description: Packet Project ID
         example: 41f6b702-aba4-4758-9094-403c41b25b6c
+    get:
+      tags:
+        - Clusters
+      summary: Lists all clusters
+      responses:
+        '200':
+          description: Show all clusters
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Cluster'
+
     post:
-      summary: Provision new cluster
+      tags:
+        - Clusters
+      summary: Create new cluster
       requestBody:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/NewCluster'
+              $ref: '#/components/schemas/Create_Cluster'
       responses:
         '200':
           description: Cluster created and nodes are being created
@@ -31,7 +46,169 @@ paths:
               schema:
                 $ref: '#/components/schemas/Task'
         '400':
-          description: Cannot provision
+          description: Cannot create
+
+  /{project_id}/clusters/{cluster_id}:
+    parameters:
+      - in: path
+        name: project_id
+        schema:
+            type: string
+        required: true
+        description: Packet Project ID
+        example: 41f6b702-aba4-4758-9094-403c41b25b6c
+      - in: path
+        name: cluster_id
+        schema:
+            type: string
+        required: true
+        description: Cluster ID
+        example: 8555f6e0-68e8-4238-8fba-779b21d33ab5
+    get:
+      tags:
+        - Cluster
+      summary: Show cluster
+      responses:
+        '200':
+          description: Show this cluster
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Cluster'
+    delete:
+      tags:
+        - Cluster
+      summary: Delete cluster
+      responses:
+        '200':
+          description: Delete this cluster
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Task'
+  
+  /{project_id}/clusters/{cluster_id}/users:
+    parameters:
+      - in: path
+        name: project_id
+        schema:
+          type: string
+        required: true
+        description: Packet Project ID
+        example: 41f6b702-aba4-4758-9094-403c41b25b6c
+      - in: path
+        name: cluster_id
+        schema:
+          type: string
+        required: true
+        description: Cluster ID
+        example: 8555f6e0-68e8-4238-8fba-779b21d33ab5
+    get:
+      tags:
+        - Users
+      summary: List users in cluster
+      responses:
+        '200':
+          description: List users in cluster
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Users'
+    post:
+      tags:
+        - Users
+      summary: Create user
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Username'
+      responses:
+        '200':
+          description: Create user
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Users'
+  /{project_id}/clusters/{cluster_id}/users/{user_id}:
+    parameters:
+      - in: path
+        name: project_id
+        schema:
+          type: string
+        required: true
+        description: Packet Project ID
+        example: 41f6b702-aba4-4758-9094-403c41b25b6c
+      - in: path
+        name: cluster_id
+        schema:
+          type: string
+        required: true
+        description: Cluster ID
+        example: 8555f6e0-68e8-4238-8fba-779b21d33ab5
+      - in: path
+        name: user_id
+        schema:
+          type: string
+        required: true
+        description: User ID
+        example: 9d6091d712384e16a6d0075dd418b54f
+    get:
+      tags:
+        - User
+      summary: Show user
+      responses:
+        '200':
+          description: Show user
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Users'
+    delete:
+      tags:
+        - User
+      summary: Delete user
+      responses:
+        '200':
+          description: Delete user
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Username'
+  /{project_id}/clusters/{cluster_id}/kubeconfig:
+    parameters:
+      - in: path
+        name: project_id
+        schema:
+            type: string
+        required: true
+        description: Packet Project ID
+        example: 41f6b702-aba4-4758-9094-403c41b25b6c
+      - in: path
+        name: cluster_id
+        schema:
+          type: string
+        required: true
+        description: Cluster ID
+        example: 8555f6e0-68e8-4238-8fba-779b21d33ab5
+    post:
+      tags:
+        - Kubeconfig
+      summary: Download kubeconfig
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/User_ID'
+      responses:
+        '200':   
+          description: OK
+          content:  
+            text/plain; charset=utf-8:
+              schema:
+                type: string
+                format: binary
+                example: <KUBECONFIG>
 components:
   securitySchemes:
     ApiKeyAuth:
@@ -40,7 +217,50 @@ components:
       name: X-Auth-Token
       description: Packet Auth Token
   schemas:
-    NewCluster:
+    Cluster:
+      required:
+        - cluster_id
+        - cluster_status
+        - cluster_name
+        - facility
+        - multi_master
+        - master_plan
+        - worker_plan
+        - worker_count
+      properties:
+        cluster_id:
+          type: string
+          description: The unique id of the cluster
+          example: 8555f6e0-68e8-4238-8fba-779b21d33ab5
+        cluster_status:
+          type: string
+          description: The status of the cluster
+          example: Healthy
+        cluster_name:
+          type: string
+          description: The friendly name of the cluster
+          example: My Best Cluster
+        facility:
+          type: string
+          description: The facility in which the cluster is deployed
+          example: ewr1
+        multi_master:
+          type: boolean
+          description: If multi-mater is enabled or not
+          example: True
+        master_plan:
+          type: string
+          description: The plan used to deploy masters
+          example: baremetal_0
+        worker_plan:
+          type: string
+          description: The plan used to deploy workers
+          example: baremetal_0
+        worker_count:
+          type: number
+          description: The number of workers in the cluster
+          example: 10
+    Create_Cluster:
       required:
         - cluster_name
         - facility
@@ -79,11 +299,37 @@ components:
           type: string
           description: The UUID of the cluster
           example: 331658b6-7828-49e1-a1ee-c844e5c3181
-        resource_status:
+        task_status:
           type: string
-          description: The status of the task building Packet hosts
+          description: The status of the task creating or destroying resources
           example: PENDING
-        resources_task_id:
+        task_id:
           type: string
-          description: UUID of the task building Packet hosts
+          description: UUID of the task creating or destroying resources
           example: e56c5531-6824-4b52-9e30-7ca75ac66475
+    Users:
+      properties:
+        id:
+          type: string
+          description: User unique ID
+          example: 9d6091d712384e16a6d0075dd418b54f
+        username:
+          type: string
+          description: A valid username in the format username@{cluster_id}.{project_id}.tikube
+          example: someuser@e56c5531-6824-4b52-9e30-7ca75ac66475.41f6b702-aba4-4758-9094-403c41b25b6c.tikube
+        is_admin:
+          type: boolean
+          description: Denotes weather a user is an admin or not
+          example: False
+    Username:
+      properties:
+        username:
+          type: string
+          description: A valid username in the format username@{cluster_id}.{project_id}.tikube
+          example: someuser@e56c5531-6824-4b52-9e30-7ca75ac66475.41f6b702-aba4-4758-9094-403c41b25b6c.tikube
+    User_ID:
+      properties:
+        user_id:
+          type: string
+          description: User unique ID
+          example: 9d6091d712384e16a6d0075dd418b54f
